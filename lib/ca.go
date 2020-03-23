@@ -51,6 +51,7 @@ import (
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/common/attrmgr"
 	"github.com/pkg/errors"
+	// sm2 "github.com/tjfoc/gmsm/sm2"
 )
 
 const (
@@ -152,6 +153,8 @@ func (ca *CA) init(renew bool) (err error) {
 	log.Debugf("Init CA with home %s and config %+v", ca.HomeDir, *ca.Config)
 
 	// Initialize the config, setting defaults, etc
+	log.Info("++++++++++++", ca.Config.CSP.Providername)
+	SetProviderName(ca.Config.CSP.Providername)
 	err = ca.initConfig()
 	if err != nil {
 		return err
@@ -350,25 +353,36 @@ func (ca *CA) getCACert() (cert []byte, err error) {
 			csr.CA.Expiry = defaultRootCACertificateExpiration
 		}
 
-		if (csr.KeyRequest == nil) || (csr.KeyRequest.Algo == "" && csr.KeyRequest.Size == 0) {
-			csr.KeyRequest = GetKeyRequest(ca.Config)
+		// if (csr.KeyRequest == nil) || (csr.KeyRequest.Algo == "" && csr.KeyRequest.Size == 0) {
+		// 	csr.KeyRequest = GetKeyRequest(ca.Config)
+		// }
+		keyRequest := cfcsr.NewBasicKeyRequest()
+		if isGMConfig() {
+			keyRequest = cfcsr.NewGMKeyRequest()
 		}
+
 		req := cfcsr.CertificateRequest{
-			CN:           csr.CN,
-			Names:        csr.Names,
-			Hosts:        csr.Hosts,
-			KeyRequest:   &cfcsr.BasicKeyRequest{A: csr.KeyRequest.Algo, S: csr.KeyRequest.Size},
+			CN:    csr.CN,
+			Names: csr.Names,
+			Hosts: csr.Hosts,
+			// KeyRequest:   &cfcsr.BasicKeyRequest{A: csr.KeyRequest.Algo, S: csr.KeyRequest.Size},
+			KeyRequest:   keyRequest,
 			CA:           csr.CA,
 			SerialNumber: csr.SerialNumber,
 		}
 		log.Debugf("Root CA certificate request: %+v", req)
 		// Generate the key/signer
-		_, cspSigner, err := util.BCCSPKeyRequestGenerate(&req, ca.csp)
+		key, cspSigner, err := util.BCCSPKeyRequestGenerate(&req, ca.csp)
 		if err != nil {
 			return nil, err
 		}
 		// Call CFSSL to initialize the CA
-		cert, _, err = initca.NewFromSigner(&req, cspSigner)
+		if isGMConfig() {
+			cert, err = createGmSm2Cert(key, &req, cspSigner) //for gm
+		} else {
+			cert, _, err = initca.NewFromSigner(&req, cspSigner)
+		}
+
 		if err != nil {
 			return nil, errors.WithMessage(err, "Failed to create new CA certificate")
 		}
@@ -491,70 +505,105 @@ func (ca *CA) initConfig() (err error) {
 // VerifyCertificate verifies that 'cert' was issued by this CA
 // Return nil if successful; otherwise, return an error.
 func (ca *CA) VerifyCertificate(cert *x509.Certificate) error {
-	opts, err := ca.getVerifyOptions()
+	sm2Cert := gm.ParseX509Certificate2Sm2(cert)
+	opts, err := ca.getVerifyOptions(ca)
 	if err != nil {
 		return errors.WithMessage(err, "Failed to get verify options")
 	}
-	_, err = cert.Verify(*opts)
+	// _, err = cert.Verify(*opts)
+	_, err = sm2Cert.Verify(*opts)
 	if err != nil {
 		return errors.WithMessage(err, "Failed to verify certificate")
 	}
 	return nil
 }
 
-// Get the options to verify
-func (ca *CA) getVerifyOptions() (*x509.VerifyOptions, error) {
+func getVerifyOptions(ca *CA) (*sm2.VerifyOptions, error) {
 	if ca.verifyOptions != nil {
 		return ca.verifyOptions, nil
 	}
+
 	chain, err := ca.getCAChain()
 	if err != nil {
 		return nil, err
 	}
-	var intPool *x509.CertPool
-	var rootPool *x509.CertPool
-
-	for len(chain) > 0 {
-		var block *pem.Block
-		block, chain = pem.Decode(chain)
-		if block == nil {
-			break
-		}
-		if block.Type != "CERTIFICATE" {
-			continue
-		}
-
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			return nil, errors.Wrap(err, "Failed to parse CA chain certificate")
-		}
-
-		if !cert.IsCA {
-			return nil, errors.New("A certificate in the CA chain is not a CA certificate")
-		}
-
-		// If authority key id is not present or if it is present and equal to subject key id,
-		// then it is a root certificate
-		if len(cert.AuthorityKeyId) == 0 || bytes.Equal(cert.AuthorityKeyId, cert.SubjectKeyId) {
-			if rootPool == nil {
-				rootPool = x509.NewCertPool()
-			}
-			rootPool.AddCert(cert)
-		} else {
-			if intPool == nil {
-				intPool = x509.NewCertPool()
-			}
-			intPool.AddCert(cert)
+	block, rest := pem.Decode(chain)
+	if block == nil {
+		return nil, errors.New("No root certificate was found")
+	}
+	rootCert, err := sm2.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse root certificate: %s", err)
+	}
+	rootPool := sm2.NewCertPool()
+	rootPool.AddCert(rootCert)
+	var intPool *sm2.CertPool
+	if len(rest) > 0 {
+		intPool = sm2.NewCertPool()
+		if !intPool.AppendCertsFromPEM(rest) {
+			return nil, errors.New("Failed to add intermediate PEM certificates")
 		}
 	}
-
-	ca.verifyOptions = &x509.VerifyOptions{
+	return &sm2.VerifyOptions{
 		Roots:         rootPool,
 		Intermediates: intPool,
-		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-	}
-	return ca.verifyOptions, nil
+		KeyUsages:     []sm2.ExtKeyUsage{sm2.ExtKeyUsageAny},
+	}, nil
 }
+
+// // Get the options to verify
+// func (ca *CA) getVerifyOptions() (*x509.VerifyOptions, error) {
+// 	if ca.verifyOptions != nil {
+// 		return ca.verifyOptions, nil
+// 	}
+// 	chain, err := ca.getCAChain()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	var intPool *x509.CertPool
+// 	var rootPool *x509.CertPool
+
+// 	for len(chain) > 0 {
+// 		var block *pem.Block
+// 		block, chain = pem.Decode(chain)
+// 		if block == nil {
+// 			break
+// 		}
+// 		if block.Type != "CERTIFICATE" {
+// 			continue
+// 		}
+
+// 		cert, err := x509.ParseCertificate(block.Bytes)
+// 		if err != nil {
+// 			return nil, errors.Wrap(err, "Failed to parse CA chain certificate")
+// 		}
+
+// 		if !cert.IsCA {
+// 			return nil, errors.New("A certificate in the CA chain is not a CA certificate")
+// 		}
+
+// 		// If authority key id is not present or if it is present and equal to subject key id,
+// 		// then it is a root certificate
+// 		if len(cert.AuthorityKeyId) == 0 || bytes.Equal(cert.AuthorityKeyId, cert.SubjectKeyId) {
+// 			if rootPool == nil {
+// 				rootPool = x509.NewCertPool()
+// 			}
+// 			rootPool.AddCert(cert)
+// 		} else {
+// 			if intPool == nil {
+// 				intPool = x509.NewCertPool()
+// 			}
+// 			intPool.AddCert(cert)
+// 		}
+// 	}
+
+// 	ca.verifyOptions = &x509.VerifyOptions{
+// 		Roots:         rootPool,
+// 		Intermediates: intPool,
+// 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+// 	}
+// 	return ca.verifyOptions, nil
+// }
 
 // Initialize the database for the CA
 func (ca *CA) initDB(metrics *db.Metrics) error {
@@ -1166,13 +1215,27 @@ func validateMatchingKeys(cert *x509.Certificate, keyFile string) error {
 			return errors.New("Public key and private key do not match")
 		}
 	case *ecdsa.PublicKey:
-		privKey, err := util.GetECPrivateKey(keyPEM)
-		if err != nil {
-			return err
-		}
+		log.Debug("Check that public key and private key match11")
+		pub, _ := cert.PublicKey.(*ecdsa.PublicKey)
+		log.Debug("check public key")
+		switch pub.Curve {
+		case sm2.P256Sm2():
+			privKey, err := util.GetSM2PrivateKey(keyPEM)
+			if err != nil {
+				return err
+			}
+			if pub.X.Cmp(privKey.X) != 0 || pub.Y.Cmp(privKey.Y) != 0 {
+				return errors.New("sm2 private key does not match public key")
+			}
+		default:
+			privKey, err := util.GetECPrivateKey(keyPEM)
+			if err != nil {
+				return err
+			}
 
-		if privKey.PublicKey.X.Cmp(pubKey.(*ecdsa.PublicKey).X) != 0 {
-			return errors.New("Public key and private key do not match")
+			if privKey.PublicKey.X.Cmp(pubKey.(*ecdsa.PublicKey).X) != 0 {
+				return errors.New("Public key and private key do not match")
+			}
 		}
 	}
 

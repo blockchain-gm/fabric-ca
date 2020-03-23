@@ -27,6 +27,7 @@
 #   - release-clean - cleans the binaries for all target platforms
 #   - dist-clean - cleans release packages for all target platforms
 #   - clean-all - cleans the build area and release packages
+export GO111MODULE=off
 
 PROJECT_NAME = fabric-ca
 BASE_VERSION = 1.4.3

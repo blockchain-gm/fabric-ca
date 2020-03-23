@@ -341,7 +341,7 @@ signing:
 csr:
    cn: <<<COMMONNAME>>>
    keyrequest:
-     algo: ecdsa
+     algo: gmsm2
      size: 256
    names:
       - C: US
@@ -385,8 +385,8 @@ idemix:
 # crypto library implementation to use
 #############################################################################
 bccsp:
-    default: SW
-    sw:
+    default: GM
+    gmca:
         hash: SHA2
         security: 256
         filekeystore:

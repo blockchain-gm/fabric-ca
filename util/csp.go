@@ -41,6 +41,8 @@ import (
 	"github.com/cloudflare/cfssl/signer/local"
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/bccsp/factory"
+	"github.com/hyperledger/fabric/bccsp/gm"
+
 	// "github.com/hyperledger/fabric/bccsp/gm"
 	cspsigner "github.com/hyperledger/fabric/bccsp/signer"
 	"github.com/hyperledger/fabric/bccsp/utils"
@@ -199,7 +201,8 @@ func GetSignerFromCert(cert *x509.Certificate, csp bccsp.BCCSP) (bccsp.Key, cryp
 	// BCCSP returns a public key if the private key for the SKI wasn't found, so
 	// we need to return an error in that case.
 	if !privateKey.Private() {
-		return nil, nil, errors.Errorf("The private key associated with the certificate with SKI '%s' was not found", hex.EncodeToString(ski))
+		// return nil, nil, errors.Errorf("The private key associated with the certificate with SKI '%s' was not found", hex.EncodeToString(ski))
+		return nil, nil, errors.Errorf("The private key associated with the certificate with SKI '%s' was not found", hex.EncodeToString(certPubK.SKI()))
 	}
 	// Construct and initialize the signer
 	signer, err := cspsigner.New(csp, privateKey)

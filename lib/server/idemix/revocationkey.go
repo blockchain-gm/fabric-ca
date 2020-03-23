@@ -8,7 +8,6 @@ package idemix
 
 import (
 	// "crypto/ecdsa"
-	"crypto/ecdsa"
 
 	// "crypto/x509"
 	"encoding/pem"
@@ -156,7 +155,7 @@ func DecodeKeys(pemEncodedPK, pemEncodedPubKey []byte) (*sm2.PrivateKey, *sm2.Pu
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "Failed to parse sm2 public key bytes")
 	}
-	publicKey := key.(*ecdsa.PublicKey)
+	publicKey := key.(*sm2.PublicKey)
 
 	return pk, publicKey, nil
 }

@@ -7,7 +7,6 @@ SPDX-License-Identifier: Apache-2.0
 package lib
 
 import (
-	"bytes"
 	"crypto/dsa"
 	"crypto/ecdsa"
 	"crypto/rsa"
@@ -49,8 +48,10 @@ import (
 	"github.com/hyperledger/fabric-ca/lib/tls"
 	"github.com/hyperledger/fabric-ca/util"
 	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric/bccsp/gm"
 	"github.com/hyperledger/fabric/common/attrmgr"
 	"github.com/pkg/errors"
+	"github.com/tjfoc/gmsm/sm2"
 	// sm2 "github.com/tjfoc/gmsm/sm2"
 )
 
@@ -153,8 +154,9 @@ func (ca *CA) init(renew bool) (err error) {
 	log.Debugf("Init CA with home %s and config %+v", ca.HomeDir, *ca.Config)
 
 	// Initialize the config, setting defaults, etc
-	log.Info("++++++++++++", ca.Config.CSP.Providername)
-	SetProviderName(ca.Config.CSP.Providername)
+	log.Info("++++++++++++", ca.Config.CSP.ProviderName)
+	// SetProviderName(ca.Config.CSP.Providername)
+	SetProviderName(ca.Config.CSP.ProviderName)
 	err = ca.initConfig()
 	if err != nil {
 		return err
@@ -353,20 +355,20 @@ func (ca *CA) getCACert() (cert []byte, err error) {
 			csr.CA.Expiry = defaultRootCACertificateExpiration
 		}
 
-		// if (csr.KeyRequest == nil) || (csr.KeyRequest.Algo == "" && csr.KeyRequest.Size == 0) {
-		// 	csr.KeyRequest = GetKeyRequest(ca.Config)
-		// }
-		keyRequest := cfcsr.NewBasicKeyRequest()
-		if isGMConfig() {
-			keyRequest = cfcsr.NewGMKeyRequest()
+		if (csr.KeyRequest == nil) || (csr.KeyRequest.Algo == "" && csr.KeyRequest.Size == 0) {
+			csr.KeyRequest = GetKeyRequest(ca.Config)
 		}
+		// keyRequest := cfcsr.NewBasicKeyRequest()
+		// if IsGMConfig() {
+		// 	keyRequest = cfcsr.NewGMKeyRequest()
+		// }
 
 		req := cfcsr.CertificateRequest{
-			CN:    csr.CN,
-			Names: csr.Names,
-			Hosts: csr.Hosts,
-			// KeyRequest:   &cfcsr.BasicKeyRequest{A: csr.KeyRequest.Algo, S: csr.KeyRequest.Size},
-			KeyRequest:   keyRequest,
+			CN:         csr.CN,
+			Names:      csr.Names,
+			Hosts:      csr.Hosts,
+			KeyRequest: &cfcsr.BasicKeyRequest{A: csr.KeyRequest.Algo, S: csr.KeyRequest.Size},
+			// KeyRequest:   keyRequest,
 			CA:           csr.CA,
 			SerialNumber: csr.SerialNumber,
 		}
@@ -377,7 +379,7 @@ func (ca *CA) getCACert() (cert []byte, err error) {
 			return nil, err
 		}
 		// Call CFSSL to initialize the CA
-		if isGMConfig() {
+		if IsGMConfig() {
 			cert, err = createGmSm2Cert(key, &req, cspSigner) //for gm
 		} else {
 			cert, _, err = initca.NewFromSigner(&req, cspSigner)
@@ -506,7 +508,7 @@ func (ca *CA) initConfig() (err error) {
 // Return nil if successful; otherwise, return an error.
 func (ca *CA) VerifyCertificate(cert *x509.Certificate) error {
 	sm2Cert := gm.ParseX509Certificate2Sm2(cert)
-	opts, err := ca.getVerifyOptions(ca)
+	opts, err := getVerifyOptions(ca)
 	if err != nil {
 		return errors.WithMessage(err, "Failed to get verify options")
 	}
@@ -519,9 +521,9 @@ func (ca *CA) VerifyCertificate(cert *x509.Certificate) error {
 }
 
 func getVerifyOptions(ca *CA) (*sm2.VerifyOptions, error) {
-	if ca.verifyOptions != nil {
-		return ca.verifyOptions, nil
-	}
+	// if ca.verifyOptions != nil {
+	// 	return ca.verifyOptions, nil
+	// }
 
 	chain, err := ca.getCAChain()
 	if err != nil {

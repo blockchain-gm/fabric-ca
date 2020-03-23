@@ -7,13 +7,15 @@ SPDX-License-Identifier: Apache-2.0
 package idemix
 
 import (
-	"crypto/x509"
+	// "crypto/x509"
 	"encoding/pem"
 	"fmt"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
+
+	sm2 "github.com/tjfoc/gmsm/sm2"
 
 	"github.com/cloudflare/cfssl/log"
 	proto "github.com/golang/protobuf/proto"
@@ -154,7 +156,7 @@ func (i *issuer) RevocationPublicKey() ([]byte, error) {
 		return nil, errors.New("Issuer is not initialized")
 	}
 	rpk := i.RevocationAuthority().PublicKey()
-	encodedPubKey, err := x509.MarshalPKIXPublicKey(rpk)
+	encodedPubKey, err := sm2.MarshalPKIXPublicKey(rpk)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Failed to encode revocation authority public key of the issuer %s", i.Name())
 	}

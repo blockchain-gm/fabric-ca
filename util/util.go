@@ -45,6 +45,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	sm2 "github.com/tjfoc/gmsm/sm2"
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -201,7 +202,16 @@ func CreateToken(csp bccsp.BCCSP, cert []byte, key bccsp.Key, method, uri string
 		if err != nil {
 			return "", err
 		}
+	case *sm2.PublicKey:
+		log.Debug("PublicKey.(type) = *sm2.PublicKey")
+		token, err = GenECDSAToken(csp, cert, key, method, uri, body)
+		if err != nil {
+			return "", err
+		}
+	default:
+		log.Debugf("PublicKey=%T", publicKey)
 	}
+
 	return token, nil
 }
 

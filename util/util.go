@@ -290,7 +290,10 @@ func VerifyToken(csp bccsp.BCCSP, token string, method, uri string, body []byte,
 	b64uri := B64Encode([]byte(uri))
 	sigString := method + "." + b64uri + "." + b64Body + "." + b64Cert
 
-	pk2, err := csp.KeyImport(x509Cert, &bccsp.X509PublicKeyImportOpts{Temporary: true})
+	log.Infof("xxx before csp .KeyImport csp : %T b64Body %s", csp, sigString)
+	sm2cert := ParseX509Certificate2Sm2(x509Cert)
+	pk2, err := csp.KeyImport(sm2cert, &bccsp.X509PublicKeyImportOpts{Temporary: true})
+	log.Infof("xxx end csp .KeyImport pk2 : %T", pk2)
 	if err != nil {
 		return nil, errors.WithMessage(err, "Public Key import into BCCSP failed with error")
 	}
@@ -300,16 +303,17 @@ func VerifyToken(csp bccsp.BCCSP, token string, method, uri string, body []byte,
 
 	//bccsp.X509PublicKeyImportOpts
 	//Using default hash algo
-	digest, digestError := csp.Hash([]byte(sigString), &bccsp.SHAOpts{})
+	digest, digestError := csp.Hash([]byte(sigString), &bccsp.SHA256Opts{})
 	if digestError != nil {
 		return nil, errors.WithMessage(digestError, "Message digest failed")
 	}
 
+	log.Debugf("pk2 %T \n sig %T\n digest %s\n", pk2, sig, B64Encode(digest))
 	valid, validErr := csp.Verify(pk2, sig, digest, nil)
 	if compMode1_3 && !valid {
 		log.Debugf("Failed to verify token based on new authentication header requirements: %s", err)
 		sigString := b64Body + "." + b64Cert
-		digest, digestError := csp.Hash([]byte(sigString), &bccsp.SHAOpts{})
+		digest, digestError := csp.Hash([]byte(sigString), &bccsp.SHA256Opts{})
 		if digestError != nil {
 			return nil, errors.WithMessage(digestError, "Message digest failed")
 		}
@@ -357,7 +361,8 @@ func GetECPrivateKey(raw []byte) (*ecdsa.PrivateKey, error) {
 	if err == nil {
 		return ECprivKey, nil
 	}
-	key, err2 := x509.ParsePKCS8PrivateKey(decoded.Bytes)
+	// key, err2 := x509.ParsePKCS8PrivateKey(decoded.Bytes)
+	key, err2 := x509.ParsePKCS8PrivateKey(raw)
 	if err2 == nil {
 		switch key.(type) {
 		case *ecdsa.PrivateKey:
@@ -393,6 +398,19 @@ func GetRSAPrivateKey(raw []byte) (*rsa.PrivateKey, error) {
 		}
 	}
 	return nil, errors.Wrap(err, "Failed parsing RSA private key")
+}
+
+//GetSM2PrivateKey get *sm2.PrivateKey from key pem
+func GetSM2PrivateKey(raw []byte) (*sm2.PrivateKey, error) {
+	decoded, _ := pem.Decode(raw)
+	if decoded == nil {
+		return nil, errors.New("Failed to decode the PEM-encoded RSA key")
+	}
+	if key, err := sm2.ParsePKCS8UnecryptedPrivateKey(decoded.Bytes); err == nil {
+		return key, nil
+	} else {
+		return nil, fmt.Errorf("tls: failed to parse private key %v", err)
+	}
 }
 
 // B64Encode base64 encodes bytes
@@ -497,30 +515,52 @@ func GetDefaultConfigFile(cmdName string) string {
 }
 
 // GetX509CertificateFromPEMFile gets an X509 certificate from a file
-func GetX509CertificateFromPEMFile(file string) (*x509.Certificate, error) {
-	pemBytes, err := ReadFile(file)
-	if err != nil {
-		return nil, err
-	}
-	x509Cert, err := GetX509CertificateFromPEM(pemBytes)
-	if err != nil {
-		return nil, errors.Wrapf(err, "Invalid certificate in '%s'", file)
-	}
-	return x509Cert, nil
-}
-
-// GetX509CertificateFromPEM get an X509 certificate from bytes in PEM format
+// func GetX509CertificateFromPEMFile(file string) (*x509.Certificate, error) {
+// 	pemBytes, err := ReadFile(file)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	x509Cert, err := GetX509CertificateFromPEM(pemBytes)
+// 	if err != nil {
+// 		return nil, errors.Wrapf(err, "Invalid certificate in '%s'", file)
+// 	}
+// 	return x509Cert, nil
+// }
 func GetX509CertificateFromPEM(cert []byte) (*x509.Certificate, error) {
 	block, _ := pem.Decode(cert)
 	if block == nil {
 		return nil, errors.New("Failed to PEM decode certificate")
 	}
-	x509Cert, err := x509.ParseCertificate(block.Bytes)
+	var x509Cert *x509.Certificate
+	var err error
+	if IsGMConfig() {
+		log.Debugf("IsGMConfig = true")
+		sm2x509Cert, err := sm2.ParseCertificate(block.Bytes)
+		if err == nil {
+			x509Cert = ParseSm2Certificate2X509(sm2x509Cert)
+			log.Debugf("after parse,x509Cert=%T,x509Cert.PublicKey=%T", x509Cert, x509Cert.PublicKey)
+		}
+	} else {
+		x509Cert, err = x509.ParseCertificate(block.Bytes)
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "Error parsing certificate")
 	}
 	return x509Cert, nil
 }
+
+// // GetX509CertificateFromPEM get an X509 certificate from bytes in PEM format
+// func GetX509CertificateFromPEM(cert []byte) (*x509.Certificate, error) {
+// 	block, _ := pem.Decode(cert)
+// 	if block == nil {
+// 		return nil, errors.New("Failed to PEM decode certificate")
+// 	}
+// 	x509Cert, err := x509.ParseCertificate(block.Bytes)
+// 	if err != nil {
+// 		return nil, errors.Wrap(err, "Error parsing certificate")
+// 	}
+// 	return x509Cert, nil
+// }
 
 // GetX509CertificatesFromPEM returns X509 certificates from bytes in PEM format
 func GetX509CertificatesFromPEM(pemBytes []byte) ([]*x509.Certificate, error) {
@@ -533,14 +573,43 @@ func GetX509CertificatesFromPEM(pemBytes []byte) ([]*x509.Certificate, error) {
 			break
 		}
 
-		cert, err := x509.ParseCertificate(block.Bytes)
+		var x509Cert *x509.Certificate
+		var err error
+		if IsGMConfig() {
+			sm2x509Cert, err := sm2.ParseCertificate(block.Bytes)
+			if err == nil {
+				x509Cert = ParseSm2Certificate2X509(sm2x509Cert)
+			}
+		} else {
+			x509Cert, err = x509.ParseCertificate(block.Bytes)
+		}
 		if err != nil {
 			return nil, errors.Wrap(err, "Error parsing certificate")
 		}
-		certs = append(certs, cert)
+		certs = append(certs, x509Cert)
 	}
 	return certs, nil
 }
+
+// // GetX509CertificatesFromPEM returns X509 certificates from bytes in PEM format
+// func GetX509CertificatesFromPEM(pemBytes []byte) ([]*x509.Certificate, error) {
+// 	chain := pemBytes
+// 	var certs []*x509.Certificate
+// 	for len(chain) > 0 {
+// 		var block *pem.Block
+// 		block, chain = pem.Decode(chain)
+// 		if block == nil {
+// 			break
+// 		}
+
+// 		cert, err := x509.ParseCertificate(block.Bytes)
+// 		if err != nil {
+// 			return nil, errors.Wrap(err, "Error parsing certificate")
+// 		}
+// 		certs = append(certs, cert)
+// 	}
+// 	return certs, nil
+// }
 
 // GetCertificateDurationFromFile returns the validity duration for a certificate
 // in a file.
@@ -835,6 +904,9 @@ func ValidateAndReturnAbsConf(configFilePath, homeDir, cmdName string) (string, 
 }
 
 // GetSliceFromList will return a slice from a list
+// func GetSliceFromList(split string, delim string) []string {
+// 	return strings.Split(strings.Replace(split, " ", "", -1), delim)
+// }
 func GetSliceFromList(split string, delim string) []string {
 	return strings.Split(strings.Replace(split, " ", "", -1), delim)
 }

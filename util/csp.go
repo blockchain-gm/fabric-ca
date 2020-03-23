@@ -209,6 +209,7 @@ func GetSignerFromCert(cert *x509.Certificate, csp bccsp.BCCSP) (bccsp.Key, cryp
 	if err != nil {
 		return nil, nil, errors.WithMessage(err, "Failed to load ski from bccsp")
 	}
+	log.Info("xxxx end GetSignerFromCert successfuul")
 	return privateKey, signer, nil
 }
 
@@ -262,6 +263,7 @@ func GetSignerFromSM2Cert(cert *sm2.Certificate, csp bccsp.BCCSP) (bccsp.Key, cr
 	return privateKey, signer, nil
 }
 
+// GetSignerFromCertFile load skiFile and load private key represented by ski and return bccsp signer that conforms to crypto.Signer
 func GetSignerFromCertFile(certFile string, csp bccsp.BCCSP) (bccsp.Key, crypto.Signer, *x509.Certificate, error) {
 	// Load cert file
 	certBytes, err := ioutil.ReadFile(certFile)

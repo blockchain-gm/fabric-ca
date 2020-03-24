@@ -386,8 +386,8 @@ idemix:
 #############################################################################
 bccsp:
     default: GM
-    gmca:
-        hash: SHA2
+    GM:
+        hash: GMSM3
         security: 256
         filekeystore:
             # The directory used for the software file-based keystore

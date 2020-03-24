@@ -303,17 +303,18 @@ func VerifyToken(csp bccsp.BCCSP, token string, method, uri string, body []byte,
 
 	//bccsp.X509PublicKeyImportOpts
 	//Using default hash algo
-	digest, digestError := csp.Hash([]byte(sigString), &bccsp.SHA256Opts{})
+	digest, digestError := csp.Hash([]byte(sigString), &bccsp.SHAOpts{})
 	if digestError != nil {
 		return nil, errors.WithMessage(digestError, "Message digest failed")
 	}
 
 	log.Debugf("pk2 %T \n sig %T\n digest %s\n", pk2, sig, B64Encode(digest))
 	valid, validErr := csp.Verify(pk2, sig, digest, nil)
+	log.Debug("++++++++++++\n", compMode1_3, valid)
 	if compMode1_3 && !valid {
-		log.Debugf("Failed to verify token based on new authentication header requirements: %s", err)
+		log.Debugf("Failed to verify token based on new authentication header requirements: %v", validErr)
 		sigString := b64Body + "." + b64Cert
-		digest, digestError := csp.Hash([]byte(sigString), &bccsp.SHA256Opts{})
+		digest, digestError := csp.Hash([]byte(sigString), &bccsp.SHAOpts{})
 		if digestError != nil {
 			return nil, errors.WithMessage(digestError, "Message digest failed")
 		}

@@ -139,6 +139,7 @@ func storeCAChain(config *lib.ClientConfig, si *lib.GetCAInfoResponse) error {
 			break
 		}
 
+		log.Debug("chain----------------", string(chain))
 		cert, err := sm2.ParseCertificate(block.Bytes)
 		if err != nil {
 			return errors.Wrap(err, "Failed to parse certificate in the CA chain")

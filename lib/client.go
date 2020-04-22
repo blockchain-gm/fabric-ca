@@ -205,7 +205,18 @@ func (c *Client) GenCSR(req *api.CSRInfo, id string) ([]byte, bccsp.Key, error) 
 	cr.CN = id
 
 	if (cr.KeyRequest == nil) || (cr.KeyRequest.Size() == 0 && cr.KeyRequest.Algo() == "") {
-		cr.KeyRequest = newCfsslBasicKeyRequest(api.NewBasicKeyRequest())
+		// cr.KeyRequest = newCfsslBasicKeyRequest(api.NewBasicKeyRequest())
+		keyRequest := api.NewBasicKeyRequest()
+		if IsGMConfig() {
+			keyRequest.Algo = "gmsm2" //"GMSM3" //"gmsm2"
+			keyRequest.Size = 256
+			cr.KeyRequest = newCfsslBasicKeyRequest(keyRequest)
+
+		} else {
+			keyRequest.Algo = "ecdsa"
+			keyRequest.Size = 256
+			cr.KeyRequest = newCfsslBasicKeyRequest(keyRequest)
+		}
 	}
 
 	key, cspSigner, err := util.BCCSPKeyRequestGenerate(cr, c.csp)

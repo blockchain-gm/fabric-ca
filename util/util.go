@@ -308,6 +308,7 @@ func VerifyToken(csp bccsp.BCCSP, token string, method, uri string, body []byte,
 		return nil, errors.WithMessage(digestError, "Message digest failed")
 	}
 
+	log.Debugf("sig %s", b64Sig)
 	log.Debugf("pk2 %T \n sig %T\n digest %s\n", pk2, sig, B64Encode(digest))
 	valid, validErr := csp.Verify(pk2, sig, digest, nil)
 	log.Debug("++++++++++++\n", compMode1_3, valid)

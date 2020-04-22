@@ -25,8 +25,10 @@ import (
 	"crypto/rand"
 	"crypto/sha512"
 	"encoding/asn1"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 
@@ -88,6 +90,7 @@ func (pub *PublicKey) Verify(msg []byte, sign []byte) bool {
 
 	_, err := asn1.Unmarshal(sign, &sm2Sign)
 	if err != nil {
+		fmt.Println("Unmarshal>>>", err.Error)
 		return false
 	}
 	return Verify(pub, msg, sm2Sign.R, sm2Sign.S)
@@ -232,6 +235,8 @@ func Sign(priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
 }
 
 func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
+	fmt.Println("sm2 Verify in", base64.StdEncoding.EncodeToString(hash))
+
 	c := pub.Curve
 	N := c.Params().N
 
@@ -257,6 +262,8 @@ func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
 	e := new(big.Int).SetBytes(hash)
 	x.Add(x, e)
 	x.Mod(x, N)
+
+	fmt.Println("sm2 Verify out latest", x.Cmp(r))
 	return x.Cmp(r) == 0
 }
 
